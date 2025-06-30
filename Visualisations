@@ -1,0 +1,80 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+# 1. PCA Clusters Visualisation 
+def plot_pca_clusters(df_pandas):
+    plt.figure(figsize=(10, 8))
+    sns.scatterplot(x='PC1', y='PC2', hue='prediction', data=df_pandas, palette='viridis', alpha=0.8)
+    plt.title('PCA Projection of NBA Players')
+    plt.xlabel('Principal Component 1')
+    plt.ylabel('Principal Component 2')
+    plt.grid(True)
+    plt.legend(title='Cluster')
+    plt.tight_layout()
+    plt.show()
+
+# Example usage after PCA and KMeans:
+# df_pca.selectExpr("pca_features[0] as PC1", "pca_features[1] as PC2", "prediction")
+
+
+# 2. Actual vs. Predicted Regression Plot 
+def plot_regression_results(actual_values, predicted_values, xlabel='Actual', ylabel='Predicted', title='Actual vs Predicted'):
+    plt.figure(figsize=(10, 6))
+    plt.scatter(actual_values, predicted_values, alpha=0.7, color='dodgerblue')
+    max_val = max(max(actual_values), max(predicted_values))
+    plt.plot([0, max_val], [0, max_val], linestyle='--', color='red')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+#  3. Confusion Matrix Plot 
+from sklearn.metrics import confusion_matrix
+
+def plot_confusion_matrix(y_true, y_pred):
+    cm = confusion_matrix(y_true, y_pred)
+    plt.figure(figsize=(6, 5))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix')
+    plt.tight_layout()
+    plt.show()
+
+
+# Dendrogram 
+from scipy.cluster.hierarchy import dendrogram, linkage
+
+def plot_dendrogram(features_array, threshold=None):
+    Z = linkage(features_array, method='ward')
+    plt.figure(figsize=(14, 8))
+    dendrogram(Z, leaf_rotation=90., leaf_font_size=10., color_threshold=threshold or 0)
+    if threshold:
+        plt.axhline(y=threshold, color='k', linestyle='--')
+    plt.title('Hierarchical Clustering Dendrogram')
+    plt.xlabel('Sample Index')
+    plt.ylabel('Distance')
+    plt.tight_layout()
+    plt.show()
+
+
+#  5. Scatter Plot for Clustered Players 
+def plot_pts_ast_clusters(df_cluster):
+    plt.figure(figsize=(12, 10))
+    palette = sns.color_palette("husl", df_cluster['prediction'].nunique())
+    sns.scatterplot(data=df_cluster, x="PTS", y="AST", hue="prediction", palette=palette, alpha=0.8)
+    for cluster in sorted(df_cluster['prediction'].unique()):
+        top_players = df_cluster[df_cluster['prediction'] == cluster].sort_values(by=["PTS", "AST"], ascending=False).head(3)
+        for _, row in top_players.iterrows():
+            plt.text(row['PTS'], row['AST'], row['Player'], fontsize=8)
+    plt.title("Clustering of NBA Players by PTS and AST")
+    plt.xlabel("Points Per Game (PTS)")
+    plt.ylabel("Assists Per Game (AST)")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
