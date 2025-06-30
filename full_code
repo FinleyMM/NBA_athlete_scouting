@@ -1,0 +1,178 @@
+# Import necessary libraries
+from pyspark.sql import SparkSession
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.clustering import KMeans, BisectingKMeans
+from pyspark.ml.evaluation import ClusteringEvaluator
+from pyspark.ml.regression import LinearRegression
+from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.classification import LinearSVC
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+from pyspark.ml.feature import PCA
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, roc_curve, auc
+
+# Initialize SparkSession
+spark = SparkSession.builder.appName("NBA Analysis").getOrCreate()
+
+# Load the dataset
+df = spark.read.csv("/content/Book1.csv", header=True, inferSchema=True)
+
+# Drop rows with missing values
+df = df.dropna()
+
+# --- Section 1: PCA and KMeans Clustering ---
+selected_columns_pca = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA", "3P%"]
+assembler_pca = VectorAssembler(inputCols=selected_columns_pca, outputCol="features")
+df_pca = assembler_pca.transform(df)
+
+# Apply PCA
+pca = PCA(k=2, inputCol="features", outputCol="pca_features")
+pca_model = pca.fit(df_pca)
+df_pca = pca_model.transform(df_pca)
+
+# Show PCA features
+df_pca.select("pca_features").show(truncate=False)
+print("Explained Variance Ratio:", pca_model.explainedVariance.toArray())
+
+# KMeans Clustering
+kmeans = KMeans().setK(2).setSeed(42).setFeaturesCol("pca_features").setPredictionCol("prediction")
+kmeans_model = kmeans.fit(df_pca)
+predictions_kmeans = kmeans_model.transform(df_pca)
+
+# Evaluate clustering
+evaluator = ClusteringEvaluator(featuresCol="pca_features", predictionCol="prediction")
+silhouette_score = evaluator.evaluate(predictions_kmeans)
+print("Silhouette Score:", silhouette_score)
+print("Cluster Centers:", kmeans_model.clusterCenters())
+
+# --- Section 2: KNN Classification ---
+# Convert to Pandas DataFrame
+pandas_df = df_pca.toPandas()
+
+# Prepare data for KNN
+X = np.array(pandas_df["features"].tolist())
+y = pandas_df["Pos"]
+
+# Split and standardize data
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Train KNN model
+knn = KNeighborsClassifier(n_neighbors=5)
+knn.fit(X_train, y_train)
+
+# Predictions and evaluation
+y_pred = knn.predict(X_test)
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy:.2f}")
+
+# Classification report
+print("Classification Report:")
+print(classification_report(y_test, y_pred))
+
+# --- Section 3: Linear Regression ---
+selected_columns_lr = ["FT", "Age", "3PA", "G", "GS", "MP"]
+assembler_lr = VectorAssembler(inputCols=selected_columns_lr, outputCol="features")
+df_lr = assembler_lr.transform(df).select("features", "3P%")
+
+# Split data
+train_data, test_data = df_lr.randomSplit([0.7, 0.3], seed=42)
+
+# Train Linear Regression model
+lr = LinearRegression(featuresCol="features", labelCol="3P%")
+lr_model = lr.fit(train_data)
+
+# Make predictions
+predictions_lr = lr_model.transform(test_data)
+
+# Evaluate model
+evaluator_lr = RegressionEvaluator(labelCol="3P%", predictionCol="prediction", metricName="rmse")
+rmse = evaluator_lr.evaluate(predictions_lr)
+print("Root Mean Squared Error (RMSE) on test data:", rmse)
+
+# Print coefficients and intercept
+print("Coefficients:", lr_model.coefficients)
+print("Intercept:", lr_model.intercept)
+
+# Convert to Pandas for visualization
+actual_values = np.array(predictions_lr.select("3P%").collect()).flatten()
+predicted_values = np.array(predictions_lr.select("prediction").collect()).flatten()
+df_results = pd.DataFrame({"Actual_3P%": actual_values, "Predicted_3P%": predicted_values})
+df_results.to_csv("linear_regression_results.csv", index=False)
+
+# Plot actual vs predicted
+plt.figure(figsize=(10, 6))
+plt.scatter(actual_values, predicted_values, color="blue")
+plt.plot([0, max(actual_values)], [0, max(actual_values)], color="red", linestyle="--")
+plt.title("Actual vs. Predicted 3P%")
+plt.xlabel("Actual 3P%")
+plt.ylabel("Predicted 3P%")
+plt.show()
+
+# --- Section 4: Hierarchical Clustering with BisectingKMeans ---
+selected_columns_bk = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA"]
+assembler_bk = VectorAssembler(inputCols=selected_columns_bk, outputCol="features")
+df_bk = assembler_bk.transform(df.limit(100)).select("features")
+
+# Train BisectingKMeans model
+bkmeans = BisectingKMeans(featuresCol="features", predictionCol="prediction", k=2)
+bkmeans_model = bkmeans.fit(df_bk)
+predictions_bk = bkmeans_model.transform(df_bk)
+
+# Evaluate clustering
+silhouette_bk = evaluator.evaluate(predictions_bk)
+print("BisectingKMeans Silhouette Score:", silhouette_bk)
+
+# --- Section 5: SVM Classification ---
+selected_columns_svm = ["2P", "2PA", "2P%", "FT", "FTA", "FT%"]
+assembler_svm = VectorAssembler(inputCols=selected_columns_svm, outputCol="features")
+df_svm = assembler_svm.transform(df)
+
+# Create binary label based on 3P threshold
+df_svm = df_svm.withColumn("label", when(df_svm["3P"] > 1.4, 1).otherwise(0))
+data_svm = df_svm.select("features", "label")
+
+# Split data
+train_data_svm, test_data_svm = data_svm.randomSplit([0.8, 0.2], seed=42)
+
+# Train SVM model
+svm = LinearSVC(featuresCol="features", labelCol="label")
+svm_model = svm.fit(train_data_svm)
+
+# Make predictions
+predictions_svm = svm_model.transform(test_data_svm)
+
+# Evaluate SVM
+evaluator_svm = BinaryClassificationEvaluator(labelCol="label")
+accuracy_svm = evaluator_svm.evaluate(predictions_svm)
+print("SVM Accuracy:", accuracy_svm)
+
+# Confusion matrix
+y_true_svm = predictions_svm.select("label").rdd.flatMap(lambda x: x).collect()
+y_pred_svm = predictions_svm.select("prediction").rdd.flatMap(lambda x: x).collect()
+cm = confusion_matrix(y_true_svm, y_pred_svm)
+
+# Plot confusion matrix
+plt.figure(figsize=(8, 6))
+plt.imshow(cm, interpolation="nearest", cmap=plt.cm.Blues)
+plt.title("Confusion Matrix")
+plt.colorbar()
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.xticks([0, 1], ["0", "1"])
+plt.yticks([0, 1], ["0", "1"])
+for i in range(len(cm)):
+    for j in range(len(cm)):
+        plt.text(j, i, format(cm[i, j], "d"), horizontalalignment="center",
+                 color="white" if cm[i, j] > cm.max() / 2. else "black")
+plt.show()
+
+# Stop SparkSession
+spark.stop()
