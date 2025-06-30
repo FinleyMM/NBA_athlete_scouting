@@ -20,7 +20,7 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 spark = SparkSession.builder.appName("NBA Analysis").getOrCreate()
 
 # Load the dataset
-df = spark.read.csv("/content/Book1.csv", header=True, inferSchema=True)
+df = spark.read.csv("/content/NBASeason.csv", header=True, inferSchema=True)
 
 # Drop rows with missing values
 df = df.dropna()
