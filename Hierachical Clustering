@@ -1,0 +1,15 @@
+from pyspark.ml.clustering import BisectingKMeans
+from scipy.cluster.hierarchy import dendrogram, linkage
+
+# Sample for dendrogram
+sample_df = df_vector.limit(100)
+features_array = np.array(sample_df.select("features").rdd.map(lambda row: row[0]).collect())
+
+# Scipy Dendrogram
+Z = linkage(features_array, method='ward')
+plt.figure(figsize=(12, 6))
+dendrogram(Z)
+plt.title("NBA Player Dendrogram")
+plt.xlabel("Sample Index")
+plt.ylabel("Distance")
+plt.show()
