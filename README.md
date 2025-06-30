@@ -10,11 +10,11 @@ Selected features (e.g., Age, G, GS, MP, FG, 3P), handled missing values, and as
 ##Models Used: 
 K-Means Clustering, K-Nearest Neighbors (KNN), Linear Regression, BisectingKMeans, Support Vector Machine (SVM).
 
-•  Evaluation Metrics: 
+##Evaluation Metrics: 
 Silhouette Score (clustering), Accuracy (KNN/SVM), RMSE (Linear Regression).
 
-•  Visualizations: 
+##Visualizations: 
 Scatter plot for actual vs. predicted 3P%, confusion matrix for SVM.
 
-•  Hyperparameter Tuning: 
+##Hyperparameter Tuning: 
 Basic parameter setting (e.g., K=2 for KMeans), with potential for expansion.
