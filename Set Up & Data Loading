@@ -1,0 +1,15 @@
+!pip install pyspark
+
+from pyspark.sql import SparkSession
+from pyspark.ml.feature import VectorAssembler
+import matplotlib.pyplot as plt
+import seaborn as sns
+import pandas as pd
+import numpy as np
+
+# Initialise Spark session
+spark = SparkSession.builder.appName("NBA Analysis").getOrCreate()
+
+# Load and clean dataset
+file_path = "/content/Book1.csv"
+df = spark.read.csv(file_path, header=True, inferSchema=True).dropna()
