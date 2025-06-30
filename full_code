@@ -6,7 +6,7 @@ NBA Player Stats Analysis using PySpark and Scikit-learn
 - Classification (KNN, SVM)
 - Regression (Predicting 3P%)
 
-Author: [Finley Michael Mbella]
+Author: Finley Michael Mbella
 """
 
 # --- Import Libraries ---
@@ -31,11 +31,10 @@ from sklearn.metrics import accuracy_score, classification_report, confusion_mat
 # Start Spark Session 
 spark = SparkSession.builder.appName("NBA Analysis").getOrCreate()
 
-# Load & Prep Data 
+# Load & prep data 
 df = spark.read.csv("/content/NBASeason.csv", header=True, inferSchema=True).dropna()
 
 # Section 1: PCA + KMeans Clustering
-
 features_pca = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA", "3P%"]
 assembler_pca = VectorAssembler(inputCols=features_pca, outputCol="features")
 df_pca = assembler_pca.transform(df)
@@ -113,8 +112,7 @@ plt.title("Actual vs. Predicted 3P% (Linear Regression)")
 plt.grid(True)
 plt.show()
 
-
-# Section 4: Bisecting Means
+# Section 4: Bisecting KMeans
 features_bk = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA"]
 assembler_bk = VectorAssembler(inputCols=features_bk, outputCol="features")
 df_bk = assembler_bk.transform(df.limit(100)).select("features")
@@ -125,7 +123,7 @@ pred_bk = bk_model.transform(df_bk)
 
 print("Silhouette Score (BisectingKMeans):", evaluator.evaluate(pred_bk))
 
-# Section SVM
+# Section 5: SVM Classification
 features_svm = ["2P", "2PA", "2P%", "FT", "FTA", "FT%"]
 assembler_svm = VectorAssembler(inputCols=features_svm, outputCol="features")
 df_svm = assembler_svm.transform(df)
