@@ -1,0 +1,17 @@
+from pyspark.ml.classification import LinearSVC
+from pyspark.sql.functions import when
+
+# Binary classification on '3P'
+df = df.withColumn("label", when(df["3P"] > 1.4, 1).otherwise(0))
+svm_features = ["2P", "2PA", "2P%", "FT", "FTA", "FT%"]
+
+assembler = VectorAssembler(inputCols=svm_features, outputCol="features")
+df_svm = assembler.transform(df).select("features", "label")
+
+train_svm, test_svm = df_svm.randomSplit([0.8, 0.2], seed=42)
+svm = LinearSVC(featuresCol="features", labelCol="label")
+svm_model = svm.fit(train_svm)
+predictions = svm_model.transform(test_svm)
+
+evaluator = BinaryClassificationEvaluator()
+print("SVM Accuracy (AUC):", evaluator.evaluate(predictions))
