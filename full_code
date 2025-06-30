@@ -9,150 +9,124 @@ NBA Player Stats Analysis using PySpark and Scikit-learn
 Author: Finley Michael Mbella
 """
 
-# --- Import Libraries ---
+
+# 1. Setup
+!pip install pyspark
+
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import when
 from pyspark.ml.feature import VectorAssembler, PCA
 from pyspark.ml.clustering import KMeans, BisectingKMeans
-from pyspark.ml.evaluation import ClusteringEvaluator, RegressionEvaluator, BinaryClassificationEvaluator
+from pyspark.ml.evaluation import ClusteringEvaluator
 from pyspark.ml.regression import LinearRegression
 from pyspark.ml.classification import LinearSVC
+from pyspark.ml.evaluation import RegressionEvaluator, BinaryClassificationEvaluator
+from pyspark.sql.functions import when
 
-import numpy as np
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+from scipy.cluster.hierarchy import dendrogram, linkage
 
-# Start Spark Session 
+# 2. Spark Session
 spark = SparkSession.builder.appName("NBA Analysis").getOrCreate()
 
-# Load & prep data 
-df = spark.read.csv("/content/NBASeason.csv", header=True, inferSchema=True).dropna()
+# 3. Load and Clean Dataset
+file_path = "/content/Book1.csv"
+df = spark.read.csv(file_path, header=True, inferSchema=True).dropna()
 
-# Section 1: PCA + KMeans Clustering
-features_pca = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA", "3P%"]
-assembler_pca = VectorAssembler(inputCols=features_pca, outputCol="features")
-df_pca = assembler_pca.transform(df)
+# 4. Feature Selection
+features_all = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA", "3P%", "2P", "2PA", "2P%",
+                "FT", "FTA", "FT%", "ORB", "DRB", "TRB", "AST", "STL", "BLK", "TOV", "PF", "PTS"]
 
-# Apply PCA
+# 5. PCA
+assembler = VectorAssembler(inputCols=features_all, outputCol="features")
+df_vec = assembler.transform(df)
 pca = PCA(k=2, inputCol="features", outputCol="pca_features")
-pca_model = pca.fit(df_pca)
-df_pca = pca_model.transform(df_pca)
+pca_model = pca.fit(df_vec)
+df_pca = pca_model.transform(df_vec)
+print("Explained Variance:", pca_model.explainedVariance.toArray())
 
-print("Explained Variance Ratio:", pca_model.explainedVariance.toArray())
-
-# KMeans Clustering
-kmeans = KMeans(k=2, seed=42, featuresCol="pca_features", predictionCol="prediction")
+# 6. KMeans Clustering on PCA
+kmeans = KMeans(featuresCol="pca_features", k=2, seed=42)
 kmeans_model = kmeans.fit(df_pca)
-pred_kmeans = kmeans_model.transform(df_pca)
+predictions_kmeans = kmeans_model.transform(df_pca)
+silhouette = ClusteringEvaluator(featuresCol="pca_features").evaluate(predictions_kmeans)
+print("Silhouette Score (KMeans):", silhouette)
 
-evaluator = ClusteringEvaluator(featuresCol="pca_features", predictionCol="prediction")
-print("Silhouette Score (KMeans):", evaluator.evaluate(pred_kmeans))
-print("Cluster Centres:", kmeans_model.clusterCenters())
-
-# Section 2: KNN Classification
-# Convert to Pandas
-pandas_df = df_pca.toPandas()
-X = np.array(pandas_df["features"].tolist())
-y = pandas_df["Pos"]
-
-# Encode categorical labels
-le = LabelEncoder()
-y_encoded = le.fit_transform(y)
-
-# Split & standardise
-X_train, X_test, y_train, y_test = train_test_split(X, y_encoded, test_size=0.2, random_state=42)
+# 7. KNN Classification with Scikit-learn
+knn_df = predictions_kmeans.select("features", "Pos").dropna().toPandas()
+X = np.array(knn_df["features"].tolist())
+y = knn_df["Pos"]
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test = scaler.transform(X_test)
-
-# Train KNN
 knn = KNeighborsClassifier(n_neighbors=5)
 knn.fit(X_train, y_train)
 y_pred = knn.predict(X_test)
+print("KNN Accuracy:", accuracy_score(y_test, y_pred))
+print(classification_report(y_test, y_pred))
+print("Confusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
-print(f"KNN Accuracy: {accuracy_score(y_test, y_pred):.2f}")
-print("KNN Classification Report:")
-print(classification_report(y_test, y_pred, target_names=le.classes_))
+# 8. Linear Regression to predict PTS
+reg_features = features_all[:-1]  # Exclude PTS
+df_reg = VectorAssembler(inputCols=reg_features, outputCol="features").transform(df).select("features", "PTS")
+train_reg, test_reg = df_reg.randomSplit([0.7, 0.3], seed=42)
+lr = LinearRegression(featuresCol="features", labelCol="PTS")
+lr_model = lr.fit(train_reg)
+pred_lr = lr_model.transform(test_reg)
+rmse_lr = RegressionEvaluator(labelCol="PTS", predictionCol="prediction", metricName="rmse").evaluate(pred_lr)
+print("Linear Regression RMSE:", rmse_lr)
 
-# Section 3: Linear Regression
-features_lr = ["FT", "Age", "3PA", "G", "GS", "MP"]
-assembler_lr = VectorAssembler(inputCols=features_lr, outputCol="features")
-df_lr = assembler_lr.transform(df).select("features", "3P%")
+# 9. SVM Classification: Predict if 3P > 1.4
+svm_features = ["2P", "2PA", "2P%", "FT", "FTA", "FT%"]
+df_svm = df.withColumn("label", when(df["3P"] > 1.4, 1).otherwise(0))
+df_svm_vec = VectorAssembler(inputCols=svm_features, outputCol="features").transform(df_svm).select("features", "label")
+train_svm, test_svm = df_svm_vec.randomSplit([0.8, 0.2], seed=42)
+svm = LinearSVC(featuresCol="features", labelCol="label")
+svm_model = svm.fit(train_svm)
+pred_svm = svm_model.transform(test_svm)
+auc_svm = BinaryClassificationEvaluator(labelCol="label").evaluate(pred_svm)
+print("SVM AUC:", auc_svm)
 
-# Train/Test Split
-train_lr, test_lr = df_lr.randomSplit([0.7, 0.3], seed=42)
+# 10. Hierarchical Clustering & Dendrogram
+sample_df = df_vec.limit(100)
+sample_array = np.array(sample_df.select("features").rdd.map(lambda x: x[0]).collect())
+Z = linkage(sample_array, method='ward')
+plt.figure(figsize=(12, 6))
+dendrogram(Z)
+plt.title("NBA Dendrogram")
+plt.xlabel("Sample Index")
+plt.ylabel("Distance")
+plt.tight_layout()
+plt.show()
 
-lr = LinearRegression(featuresCol="features", labelCol="3P%")
-lr_model = lr.fit(train_lr)
-predictions_lr = lr_model.transform(test_lr)
-
-evaluator_lr = RegressionEvaluator(labelCol="3P%", predictionCol="prediction", metricName="rmse")
-rmse = evaluator_lr.evaluate(predictions_lr)
-
-print("Linear Regression RMSE:", rmse)
-print("Coefficients:", lr_model.coefficients)
-print("Intercept:", lr_model.intercept)
-
-# Visualise Actual vs Predicted
-actual = np.array(predictions_lr.select("3P%").rdd.flatMap(lambda x: x).collect())
-predicted = np.array(predictions_lr.select("prediction").rdd.flatMap(lambda x: x).collect())
-
-plt.figure(figsize=(8, 6))
-plt.scatter(actual, predicted, alpha=0.6)
-plt.plot([0, max(actual)], [0, max(actual)], linestyle='--', color='red')
-plt.xlabel("Actual 3P%")
-plt.ylabel("Predicted 3P%")
-plt.title("Actual vs. Predicted 3P% (Linear Regression)")
+# 11. Visualisations: PCA Clusters
+pca_pd = predictions_kmeans.selectExpr("pca_features[0] as PC1", "pca_features[1] as PC2", "prediction").toPandas()
+plt.figure(figsize=(10, 8))
+sns.scatterplot(data=pca_pd, x="PC1", y="PC2", hue="prediction", palette="viridis")
+plt.title("PCA Clusters")
+plt.xlabel("PC1")
+plt.ylabel("PC2")
 plt.grid(True)
 plt.show()
 
-# Section 4: Bisecting KMeans
-features_bk = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3P", "3PA"]
-assembler_bk = VectorAssembler(inputCols=features_bk, outputCol="features")
-df_bk = assembler_bk.transform(df.limit(100)).select("features")
-
-bkmeans = BisectingKMeans(featuresCol="features", predictionCol="prediction", k=2)
-bk_model = bkmeans.fit(df_bk)
-pred_bk = bk_model.transform(df_bk)
-
-print("Silhouette Score (BisectingKMeans):", evaluator.evaluate(pred_bk))
-
-# Section 5: SVM Classification
-features_svm = ["2P", "2PA", "2P%", "FT", "FTA", "FT%"]
-assembler_svm = VectorAssembler(inputCols=features_svm, outputCol="features")
-df_svm = assembler_svm.transform(df)
-
-# Binary label: high 3P shooters
-df_svm = df_svm.withColumn("label", when(df_svm["3P"] > 1.4, 1).otherwise(0))
-data_svm = df_svm.select("features", "label")
-
-train_svm, test_svm = data_svm.randomSplit([0.8, 0.2], seed=42)
-svm = LinearSVC(featuresCol="features", labelCol="label")
-svm_model = svm.fit(train_svm)
-
-predictions_svm = svm_model.transform(test_svm)
-
-evaluator_svm = BinaryClassificationEvaluator(labelCol="label")
-print("SVM AUC:", evaluator_svm.evaluate(predictions_svm))
-
-# Confusion Matrix
-y_true = predictions_svm.select("label").rdd.flatMap(lambda x: x).collect()
-y_pred = predictions_svm.select("prediction").rdd.flatMap(lambda x: x).collect()
-cm = confusion_matrix(y_true, y_pred)
-
-# Plot Confusion Matrix
-plt.figure(figsize=(6, 5))
-sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=["Low", "High"], yticklabels=["Low", "High"])
-plt.title("SVM Confusion Matrix")
-plt.xlabel("Predicted")
-plt.ylabel("Actual")
+# 12. Visualise Linear Regression
+actual_vals = np.array(pred_lr.select("PTS").rdd.flatMap(lambda x: x).collect())
+pred_vals = np.array(pred_lr.select("prediction").rdd.flatMap(lambda x: x).collect())
+plt.figure(figsize=(10, 6))
+plt.scatter(actual_vals, pred_vals, color='blue')
+plt.plot([0, max(actual_vals)], [0, max(actual_vals)], linestyle='--', color='red')
+plt.title("Actual vs Predicted PTS")
+plt.xlabel("Actual PTS")
+plt.ylabel("Predicted PTS")
+plt.grid(True)
 plt.show()
 
-# Done 
+# 13. End Spark Session
 spark.stop()
