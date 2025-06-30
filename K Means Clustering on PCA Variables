@@ -1,0 +1,10 @@
+from pyspark.ml.clustering import KMeans
+from pyspark.ml.evaluation import ClusteringEvaluator
+
+kmeans = KMeans(featuresCol="pca_features", k=2, seed=42)
+kmeans_model = kmeans.fit(df_pca)
+predictions = kmeans_model.transform(df_pca)
+
+evaluator = ClusteringEvaluator(featuresCol="pca_features")
+sil_score = evaluator.evaluate(predictions)
+print("Silhouette Score:", sil_score)
