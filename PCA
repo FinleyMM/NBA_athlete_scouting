@@ -1,0 +1,16 @@
+from pyspark.ml.feature import PCA
+
+# Feature selection
+pca_features = ["Age", "G", "GS", "MP", "FG", "FGA", "FG%", "3PA", "3P%", "2P", "2PA", "2P%",
+                "FT", "FTA", "FT%", "ORB", "DRB", "TRB", "AST", "STL", "BLK", "TOV", "PF", "PTS"]
+
+# Vector assembler
+assembler = VectorAssembler(inputCols=pca_features, outputCol="features")
+df_vector = assembler.transform(df)
+
+# Apply PCA
+pca = PCA(k=2, inputCol="features", outputCol="pca_features")
+pca_model = pca.fit(df_vector)
+df_pca = pca_model.transform(df_vector)
+
+print("Explained Variance:", pca_model.explainedVariance.toArray())
